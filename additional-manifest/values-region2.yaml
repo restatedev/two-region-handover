@@ -1,16 +1,16 @@
-dnsSuffix: "two-region-demo-cluster.restate.region2.yourdomain.com"
+dnsSuffix: "two-region-demo-cluster.restate.region2.dev.restate.cloud"
 loadBalancerNameSuffix: "region2-two-region-demo"
-securityGroups: "sg-12345"
+securityGroups: "sg-09c36354c740007fb"
 
 restatePods:
   # restate-0
-  - zone: "eu-central-1b"
+  - zone: "eu-central-1a"
   # restate-1
-  - zone: "eu-central-1c"
+  - zone: "eu-central-1a"
   # restate-2
   - zone: "eu-central-1a"
 
 zoneLoadBalancerSubnets:
-  "eu-central-1a": "subnet-22345"
-  "eu-central-1b": "subnet-22346"
-  "eu-central-1c": "subnet-22347"
+  "eu-central-1a": "subnet-0c2d72e084d79d432"
+  "eu-central-1b": "subnet-0c2d72e084d79d432"
+  "eu-central-1c": "subnet-0c2d72e084d79d432"

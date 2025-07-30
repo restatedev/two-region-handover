@@ -24,9 +24,6 @@ resources:
 nodeName: ""
 advertisedAddress: ""
 
-logging:
-  env_filter: restate=debug
-
 env:
   # --------------------
   # common params

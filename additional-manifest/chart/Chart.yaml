@@ -1,0 +1,6 @@
+apiVersion: v2
+name: restate-two-region
+description: A Helm chart for Restate two-region additional manifests
+type: application
+version: 0.1.0
+appVersion: "1.0"

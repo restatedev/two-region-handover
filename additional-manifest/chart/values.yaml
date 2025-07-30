@@ -1,0 +1,23 @@
+# Restate Services Helm Chart Values
+
+# Regional config
+dnsSuffix: ""
+# max length: 23 chars
+loadBalancerNameSuffix: ""
+securityGroup: ""
+region: ""
+
+# Pod specific config
+restatePods:
+  # restate-0
+  # - zone: "zone-0"
+  # restate-1
+  # - zone: "zone-1"
+  # restate-2
+  # - zone: "zone-2"
+
+# Zone to subnet mapping
+zoneLoadBalancerSubnets:
+  # "eu-central-1a": "subnet-0c2d72e084d79d432"
+  # "eu-central-1b": "subnet-0example2"
+  # "eu-central-1c": "subnet-0example3"

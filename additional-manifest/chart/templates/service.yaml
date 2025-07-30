@@ -1,0 +1,35 @@
+{{- range $index, $pod := .Values.restatePods }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: restate-{{ $index }}
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: restate-{{ $index }}.{{ $.Values.dnsSuffix }}
+    service.beta.kubernetes.io/aws-load-balancer-subnets: {{ index $.Values.zoneLoadBalancerSubnets $pod.zone }}
+    service.beta.kubernetes.io/aws-load-balancer-target-node-labels: topology.kubernetes.io/zone={{ $pod.zone }}
+    service.beta.kubernetes.io/aws-load-balancer-security-groups: {{ $.Values.securityGroups }}
+    service.beta.kubernetes.io/aws-load-balancer-name: {{ substr 0 32 (printf "restate%d-%s" $index $.Values.loadBalancerNameSuffix) }}
+
+    service.beta.kubernetes.io/aws-load-balancer-manage-backend-security-group-rules: "false"
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: instance
+    service.beta.kubernetes.io/aws-load-balancer-target-group-attributes: preserve_client_ip.enabled=false
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-healthy-threshold: "2"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval: "5"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: traffic-port
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: TCP
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-timeout: "5"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-unhealthy-threshold: "2"
+spec:
+  ports:
+    - name: node
+      port: 5122
+      protocol: TCP
+      targetPort: 5122
+  publishNotReadyAddresses: true
+  type: LoadBalancer
+  selector:
+    app: restate
+    apps.kubernetes.io/pod-index: "{{ $index }}"
+{{- end }}

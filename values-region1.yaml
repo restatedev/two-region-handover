@@ -6,12 +6,12 @@ replicaCount: 3
 serviceAccount:
   annotations:
     # a role that can access the S3 bucket
-    eks.amazonaws.com/role-arn: arn:aws:iam::211125428070:role/TwoRegionTest
+    eks.amazonaws.com/role-arn: arn:aws:iam::1234567890:role/TwoRegionTest
 
 # iam with kiam:
 # podAnnotations:
 #    # a role that can access the S3 bucket
-#   iam.amazonaws.com/role: arn:aws:iam::211125428070:role/TwoRegionTest
+#   iam.amazonaws.com/role: arn:aws:iam::1234567890:role/TwoRegionTest
 
 resources:
   requests:
@@ -55,17 +55,17 @@ env:
     value: region1
   # this must match the format of the external-dns annotations in services.yaml
   - name: RESTATE_ADVERTISED_ADDRESS
-    value: "http://$(POD_NAME).two-region-demo-cluster.restate.region1.dev.restate.cloud:5122"
+    value: "http://$(POD_NAME).two-region-demo-cluster.restate.region1.yourdomain.com:5122"
   # the advertised addresses for all nodes need to be present in config for each node
   - name: RESTATE_METADATA_CLIENT__ADDRESSES
     value: >
       [
-      "http://restate-0.two-region-demo-cluster.restate.region1.dev.restate.cloud:5122",
-      "http://restate-1.two-region-demo-cluster.restate.region1.dev.restate.cloud:5122",
-      "http://restate-2.two-region-demo-cluster.restate.region1.dev.restate.cloud:5122",
-      "http://restate-0.two-region-demo-cluster.restate.region2.dev.restate.cloud:5122",
-      "http://restate-1.two-region-demo-cluster.restate.region2.dev.restate.cloud:5122",
-      "http://restate-2.two-region-demo-cluster.restate.region2.dev.restate.cloud:5122"
+      "http://restate-0.two-region-demo-cluster.restate.region1.yourdomain.com:5122",
+      "http://restate-1.two-region-demo-cluster.restate.region1.yourdomain.com:5122",
+      "http://restate-2.two-region-demo-cluster.restate.region1.yourdomain.com:5122",
+      "http://restate-0.two-region-demo-cluster.restate.region2.yourdomain.com:5122",
+      "http://restate-1.two-region-demo-cluster.restate.region2.yourdomain.com:5122",
+      "http://restate-2.two-region-demo-cluster.restate.region2.yourdomain.com:5122"
       ]
   # both regions talk to their local bucket for snapshots, cross region replication copies them across
   - name: RESTATE_WORKER__SNAPSHOTS__DESTINATION

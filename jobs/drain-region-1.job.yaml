@@ -13,7 +13,7 @@ spec:
           env:
             - name: RESTATECTL_ADDRESS
               # we provide the region2 address so that we can't drain if region2 isn't running
-              value: "http://restate-0.two-region-demo-cluster.restate.region2.yourdomain.com:5122"
+              value: "http://restate-0.two-region-demo-cluster.restate.region2.dev.restate.cloud:5122"
             - name: REGION
               value: "region1"
           command: ["/bin/bash"]

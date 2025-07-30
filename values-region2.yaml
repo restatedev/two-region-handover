@@ -35,16 +35,8 @@ env:
     value: "json"
   - name: RESTATE_CLUSTER_NAME
     value: "two-region-demo-cluster"
-  - name: RESTATE_METADATA_SERVER__TYPE
-    value: "replicated"
   - name: RESTATE_AUTO_PROVISION
     value: "false"
-  - name: RESTATE_DEFAULT_REPLICATION
-    value: "{region: 2}"
-  - name: RESTATE_BIFROST__DEFAULT_PROVIDER
-    value: "replicated"
-  - name: RESTATE_DEFAULT_NUM_PARTITIONS
-    value: "128"
   - name: RESTATE_ROLES
     value: '["worker","admin","metadata-server","log-server","http-ingress"]'
     # we set this to 75% of the memory request

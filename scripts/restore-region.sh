@@ -33,9 +33,9 @@ fi
 
 echo "Moving replication from node -> region"
 
-kubectl -n $namespace exec restate-0 -- restatectl config set --yes --replication '{region: 2}'
+kubectl -n $namespace exec restate-0 -- restatectl config set --yes --log-replication '{node: 3, region: 2}' --partition-replication '{region: 2}'
 
-until [[ $(kubectl -n $namespace exec restate-0 -- restatectl sql --json "select log_id from logs_tail_segments where replication != '{region: 2}'" 2>/dev/null | jq 'length') = "0" ]];
+until [[ $(kubectl -n $namespace exec restate-0 -- restatectl sql --json "select log_id from logs_tail_segments where replication != '{node: 3, region: 2}'" 2>/dev/null | jq 'length') = "0" ]];
 do
     sleep 5
 done

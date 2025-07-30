@@ -84,7 +84,8 @@ In the meantime the restate pods will occasionally restart as they haven't been 
 You can try resolving the dns records locally or while exec'ed into a pod with `curl -v`. Once they have propagated, we can provision the cluster:
 
 ```bash
-kubectl -n restate-region1 exec -it restate-0 -- restatectl provision --yes
+# in the first cluster
+kubectl -n restate-region1 exec -it restate-0 -- restatectl provision --yes --num-partitions 128 --log-provider replicated --log-replication '{node: 3, region: 2}' --partition-replication '{region: 2}'
 ```
 
 ## Handing over between regions

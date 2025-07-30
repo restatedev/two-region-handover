@@ -69,14 +69,19 @@ ns=restate-region1; for pod in $(kubectl -n $ns get po -o name); do; node=$(kube
 ns=restate-region2; for pod in $(kubectl -n $ns get po -o name); do; node=$(kubectl get -n $ns $pod -o jsonpath="{.spec.nodeName}{\"\n\"}"); zone=$(kubectl get node $node -o jsonpath="{.metadata.labels.topology\.kubernetes\.io/zone}") ; echo "$ns $pod $zone"; done
 ```
 
-Now update the subnets in the `services.yaml` files to be subnets in the correct zone for those pods (look at other load balancers attached to the cluster if you need to find the full set of subnets).
-Also update the `service.beta.kubernetes.io/aws-load-balancer-target-node-labels` annotation to select the right zone.
-Then we can apply the services files:
+Now we need to update the values in `additional-manifest/region{1,2}-values.yaml`. We need to specify:
+1. A DNS suffix which matches the names provided in the main values files
+2. A name suffix for the NLBs
+3. A security group for the NLBs in the region to use. It needs to be able to receive traffic from Restate pods on 5122, and send traffic to nodes on the NodePort pods. You likely have a single such security group shared across all load balancers.
+4. The zone assignments for the Restate pods; Helm will use these to ensure the NLBs are in the right zone.
+5. The appropriate subnet for the NLB to assign IPs in for each zone.
+
+Then we can apply the additional manifests:
 ```bash
 # in the first cluster
-kubectl -n restate-region1 apply -f additional-manifest/region1/services.yaml
+helm upgrade --install  -n restate-region1 -f ./additional-manifest/values-region1.yaml  additional-manifest ./additional-manifest/chart
 # in the second cluster
-kubectl -n restate-region2 apply -f additional-manifest/region2/services.yaml
+helm upgrade --install  -n restate-region2 -f ./additional-manifest/values-region2.yaml  additional-manifest ./additional-manifest/chart
 ```
 
 Once the load balancers are created (check `kubectl describe service restate-` to see events), the dns records may take a couple of minutes to propagate and for caches to clear, which we have to wait for.

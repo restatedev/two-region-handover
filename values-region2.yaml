@@ -15,8 +15,11 @@ serviceAccount:
 
 resources:
   requests:
-    cpu: 1m
-    memory: 1
+    cpu: 2
+    memory: 4Gi
+  limits:
+    cpu: 4
+    memory: 6Gi
 
 nodeName: ""
 advertisedAddress: ""
@@ -44,16 +47,15 @@ env:
     value: "128"
   - name: RESTATE_ROLES
     value: '["worker","admin","metadata-server","log-server","http-ingress"]'
+    # we set this to 75% of the memory request
   - name: RESTATE_ROCKSDB_TOTAL_MEMORY_SIZE
-    value: "1024MB"
+    value: "3GB"
   - name: RESTATE_WORKER__SNAPSHOTS__SNAPSHOT_INTERVAL_NUM_RECORDS
     value: "10000"
   - name: RESTATE_WORKER__EXPERIMENTAL_PARTITION_DRIVEN_LOG_TRIMMING
     value: "true"
   - name: RESTATE_WORKER__TRIM_DELAY_INTERVAL
     value: "15m"
-  - name: RESTATE_DEFAULT_THREAD_POOL_SIZE
-    value: "2"
 
   # --------------------
   # params that need to be overridden

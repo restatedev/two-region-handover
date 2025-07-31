@@ -1,4 +1,4 @@
-# Multi-region with Restate OSS
+# Two-region handover with Restate OSS
 
 This repo gives a config for a two-region Restate cluster.
 

@@ -25,7 +25,7 @@ if [[ -n $logNodes ]]; then
 fi
 
 if [[ -n $workerNodes ]]; then
-    echo "Setting $workerNodes worker state to draining"
+    echo "Setting $workerNodes worker state to active"
 
     kubectl -n $namespace exec restate-0 -- restatectl node set-worker-state --nodes $workerNodes --worker-state active
     kubectl -n $namespace exec restate-0 -- restatectl sql "select plain_node_id, worker_state from nodes"

@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: drain-region-1-
+spec:
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: drain-region
+          image: restatedev/restate:1.4
+          env:
+            - name: RESTATECTL_ADDRESS
+              # we provide the region2 address so that we can't drain if region2 isn't running
+              value: "http://restate-0.two-region-demo-cluster.restate.region2.yourdomain.com:5122"
+            - name: REGION
+              value: "region1"
+          command: ["/bin/bash"]
+          args: ["/scripts/drain-region.sh", "$(REGION)"]
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: region-scripts
+            defaultMode: 0755

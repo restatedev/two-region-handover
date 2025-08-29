@@ -1,0 +1,96 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: region-scripts
+data:
+  drain-region.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    region=$1
+
+    nodes=$(restatectl sql --json "select plain_node_id from nodes where location == '$1' order by plain_node_id" 2>/dev/null  | jq -r '[.[].plain_node_id] | join(",")')
+    metadataNodes=$(restatectl sql --json "select plain_node_id from nodes where location == '$1' and metadata_server_state!='standby' order by plain_node_id" 2>/dev/null  | jq -r '[.[].plain_node_id] | join(",")')
+    workerNodes=$(restatectl sql --json "select plain_node_id from nodes where location == '$1' and worker_state!='draining' order by plain_node_id" 2>/dev/null  | jq -r '[.[].plain_node_id] | join(",")')
+    logNodes=$(restatectl sql --json "select plain_node_id from nodes where location == '$1' and storage_state!='read-only' order by plain_node_id" 2>/dev/null  | jq -r '[.[].plain_node_id] | join(",")')
+
+    echo "Draining nodes $nodes"
+
+    if [[ -n $metadataNodes ]]; then
+        echo "Removing nodes $metadataNodes from metadata cluster"
+
+        restatectl metadata-server remove-node $metadataNodes
+        restatectl sql "select plain_node_id, metadata_server_state from nodes"
+    fi
+
+    if [[ -n $logNodes ]]; then
+        echo "Setting $logNodes log-server state to read-only"
+
+        restatectl node set-storage-state --nodes $logNodes --storage-state read-only --force
+        restatectl sql "select plain_node_id, storage_state from nodes"
+    fi
+
+    if [[ -n $workerNodes ]]; then
+        echo "Setting $workerNodes worker state to draining"
+
+        restatectl node set-worker-state --nodes $workerNodes --worker-state draining --force
+        restatectl sql "select plain_node_id, worker_state from nodes"
+    fi
+
+    echo "Moving replication from region -> node"
+
+    restatectl config set --yes --replication '{node: 2}'
+
+    until [[ $(restatectl sql --json "select log_id from logs_tail_segments where replication != '{node: 2}'" 2>/dev/null | jq 'length') = "0" ]];
+    do
+        sleep 5
+    done
+
+    echo Creating snapshots
+    restatectl snapshot create
+
+  restore-region.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    region=$1
+
+    nodes=$(restatectl sql --json "select plain_node_id from nodes where location == '$1' order by plain_node_id" 2>/dev/null  | jq -r '[.[].plain_node_id] | join(",")')
+    metadataNodes=$(restatectl sql --json "select plain_node_id from nodes where location == '$1' and metadata_server_state!='member' order by plain_node_id" 2>/dev/null  | jq -r '[.[].plain_node_id] | join(",")')
+    workerNodes=$(restatectl sql --json "select plain_node_id from nodes where location == '$1' and worker_state!='active' order by plain_node_id" 2>/dev/null  | jq -r '[.[].plain_node_id] | join(",")')
+    logNodes=$(restatectl sql --json "select plain_node_id from nodes where location == '$1' and storage_state!='read-write' order by plain_node_id" 2>/dev/null  | jq -r '[.[].plain_node_id] | join(",")')
+
+    echo "Restoring nodes $nodes"
+
+    if [[ -n $metadataNodes ]]; then
+        echo "Adding nodes $metadataNodes to metadata cluster"
+
+        restatectl metadata-server add-node $metadataNodes
+        restatectl sql "select plain_node_id, metadata_server_state from nodes"
+    fi
+
+    if [[ -n $logNodes ]]; then
+        echo "Setting $logNodes log-server state to read-write"
+
+        restatectl node set-storage-state --nodes $logNodes --storage-state read-write
+        restatectl sql "select plain_node_id, storage_state from nodes"
+    fi
+
+    if [[ -n $workerNodes ]]; then
+        echo "Setting $workerNodes worker state to active"
+
+        restatectl node set-worker-state --nodes $workerNodes --worker-state active
+        restatectl sql "select plain_node_id, worker_state from nodes"
+    fi
+
+    echo "Moving replication from node -> region"
+
+    restatectl config set --yes --log-replication '{node: 3, region: 2}' --partition-replication '{region: 2}'
+
+    until [[ $(restatectl sql --json "select log_id from logs_tail_segments where replication != '{node: 3, region: 2}'" 2>/dev/null | jq 'length') = "0" ]];
+    do
+        sleep 5
+    done
+
+    echo Creating snapshots
+    restatectl snapshot create

@@ -95,4 +95,35 @@ kubectl -n restate-region1 exec -it restate-0 -- restatectl provision --yes --lo
 
 ## Handing over between regions
 
-Handover runbooks are work in progress, but some basic scripts can be seen in the `scripts` directory.
+You can hand off between regions either with a script on your laptop (using `kubectl exec` to run `restatectl` commands in the cluster) or using Kubernetes Jobs to run a script inside the cluster.
+
+### Running locally
+First, ensure you are in the appropriate kubectl context to talk to either region. Then you can run a drain
+operation with the command ` ./scripts/drain-region.sh region2 restate-region1`, where `region2` is the name of
+the region that was provided to restate with the `RESTATE_LOCATION` env var, and `restate-region1` is the name
+of the namespace in which a `restate-0` pod can be exec'ed into to run the operations. To drain, you likely want
+to exec into the region that you are not draining, so you have confidence the other region is running,
+but it doesn't strictly matter.
+
+To restore, you can run `./scripts/restore-region.sh region2 restate-region2`. In this case, it likely makes more
+sense to exec into the region you are restoring, which confirms it is running.
+
+### Running in a Job
+First, apply the ConfigMap `./jobs/region-scripts-configmap.yaml` to the namespaces of both regions.
+Next, ensure that `RESTATECTL_ADDRESS` is set appropriately in `./jobs/{drain,restore}-region-{1,2}.yaml`.
+Drain Jobs should use the restate-0 address of the region they are *not* draining, while restore Jobs should
+use the restate-0 address of the region they are restoring.
+
+Next, you can `kubectl create` the appropriate Job file to execute it. You can create the Jobs in either region,
+and they don't need to be in the namespaces used for Restate, as long as the Pods created by the Job are able to
+reach the `RESTATECTL_ADDRESS`.
+
+```bash
+# drain region-1 (apply into any namespace you like)
+kubectl create -f jobs/drain-region-1.job.yaml
+# restore region-1
+kubectl create -f jobs/restore-region-1.job.yaml
+```
+
+Jobs and the pods they created (along with their logs) will be retained for an hour after completion.
+If there is a failure Kubernetes will retry the script by creating new Pods up to 6 times.

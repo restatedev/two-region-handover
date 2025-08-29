@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: restore-region-2-
+spec:
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: restore-region
+          image: restatedev/restate:1.4
+          env:
+            - name: RESTATECTL_ADDRESS
+              # we provide the region2 address so that we can't restore if region2 isn't running
+              value: "http://restate-0.two-region-demo-cluster.restate.region2.yourdomain.com:5122"
+            - name: REGION
+              value: "region2"
+          command: ["/bin/bash"]
+          args: ["/scripts/restore-region.sh", "$(REGION)"]
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: region-scripts
+            defaultMode: 0755

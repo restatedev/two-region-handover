@@ -1,0 +1,13 @@
+apiVersion: gateway.k8s.aws/v1beta1
+kind: LoadBalancerConfiguration
+metadata:
+  name: restate-lb-config
+spec:
+  scheme: {{ .Values.scheme }}
+  {{- with .Values.securityGroups }}
+  securityGroups:
+    - {{ . }}
+  {{- end }}
+  loadBalancerAttributes:
+    - key: load_balancing.cross_zone.enabled
+      value: "true"

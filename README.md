@@ -1,27 +1,46 @@
-# Two-region handover with Restate OSS
+# Multi-region Restate on Kubernetes
 
-This repo gives a config for a two-region Restate cluster.
+This repo provides Helm values and an additional-manifest chart for running a multi-region Restate cluster on Kubernetes with cross-region networking via a single NLB per region.
+
+## Architecture
+
+A single Restate cluster is deployed across multiple Kubernetes clusters (one per region), each with its own Helm release. Cross-region networking is provided by a **single NLB per region** using the Kubernetes Gateway API and TCPRoute resources. Each Restate pod is exposed on a unique port (5122 + pod ordinal) on the regional NLB.
+
+### How networking works
+
+Each region has:
+- **One Gateway** resource that provisions a single NLB with N listeners (one per Restate pod)
+- **One TCPRoute** per pod, routing each NLB port to a ClusterIP Service selecting that specific pod
+- **One ClusterIP Service** per pod, selecting by `apps.kubernetes.io/pod-index`
+
+The advertised address for each node is `http://<regional-dns>:<5122+ordinal>`, derived at pod startup from the StatefulSet pod ordinal via a command wrapper.
 
 ## Prerequisites
 
 ### Kubernetes Clusters
-Two Kubernetes clusters across different regions. If you like, you can use a single cluster and use separate namespaces, as a way to test out the config.
+Two or more Kubernetes clusters across different regions. You can also use a single cluster with separate namespaces to test (e.g. the dev environment).
+
+### AWS Load Balancer Controller
+- Version **>= v2.13.3**
+- Feature gate `NLBGatewayAPI=true` must be enabled
+
+### Gateway API CRDs
+Both standard and experimental Gateway API CRDs must be installed. TCPRoute is in the experimental bundle:
+```bash
+kubectl get crd tcproutes.gateway.networking.k8s.io
+```
 
 ### Networking
-All Restate nodes need to reach each other's 5122 port, including across region.
-For this purpose we use a per-node NLB, but we specify a single subnet for each NLB so that we don't waste too many globally routable IPs.
-Configuration for NLBs can be found in `additional-manifest` - we apply those after creating the Restate pods so we can pick the NLB subnets appropriately to match where Restate is scheduled.
-
-Each NLB has its own DNS name managed by the external DNS controller. The globally-resolveable and reachable dns name (with protocol `http` and port `5122`) is set as `RESTATE_ADVERTISED_ADDRESS` for each node.
+All Restate nodes need to reach each other's regional NLB. For regions without VPC peering, VPC endpoints (PrivateLink) are used -- one per region pair.
 
 ### Metadata
-In this two region setup, all 6 nodes participate in the Raft-based replicated metadata store. When handing over between regions, we update the metadata cluster to be a 3 node cluster in a single region.
+In production, metadata is stored in a global DynamoDB table (strongly consistent global tables). The Raft-based metadata config (`RESTATE_METADATA_CLIENT__ADDRESSES`) shown in this repo is for reference but is no longer used in prod.
 
 ### Snapshot Buckets
-Each region's nodes will use a regional snapshot bucket, with S3 cross-region replication set up in both directions to copy snapshots across regions.
+Each region's nodes use a regional S3 snapshot bucket, with S3 cross-region replication in both directions.
 
 ### IAM roles
-A single IAM role can be used for both regions if desired. It needs permissions to read and write objects in the S3 buckets:
+A single IAM role can be used for both regions. It needs permissions to read and write objects in the S3 buckets:
 ```json
 {
     "Version": "2012-10-17",
@@ -52,46 +71,62 @@ A single IAM role can be used for both regions if desired. It needs permissions 
 The role needs an appropriate trust policy such that each Restate pod can assume it. This will vary depending on your kiam (`podAnnotations`) or oidc-based (`serviceAccount` annotations) IAM setup in Kubernetes.
 
 ## Deploying for the first time
-Create the AWS resources as above, edit your values files appropriately, and:
-```bash
-# in the first cluster
-helm upgrade --install restate oci://ghcr.io/restatedev/restate-helm --version 1.4.3 --namespace restate-region1 --create-namespace -f ./values-region1.yaml
-# in the second cluster
-helm upgrade --install restate oci://ghcr.io/restatedev/restate-helm --version 1.4.3 --namespace restate-region2 --create-namespace -f ./values-region2.yaml
-```
 
-Next note the assigned zones of your Restate pods:
-```bash
-# in the first cluster
-ns=restate-region1; for pod in $(kubectl -n $ns get po -o name); do; node=$(kubectl get -n $ns $pod -o jsonpath="{.spec.nodeName}{\"\n\"}"); zone=$(kubectl get node $node -o jsonpath="{.metadata.labels.topology\.kubernetes\.io/zone}") ; echo "$ns $pod $zone"; done
+Edit your values files with the appropriate DNS suffixes, security groups, S3 buckets, and IAM roles.
 
-# in the second cluster
-ns=restate-region2; for pod in $(kubectl -n $ns get po -o name); do; node=$(kubectl get -n $ns $pod -o jsonpath="{.spec.nodeName}{\"\n\"}"); zone=$(kubectl get node $node -o jsonpath="{.metadata.labels.topology\.kubernetes\.io/zone}") ; echo "$ns $pod $zone"; done
-```
-
-Now we need to update the values in `additional-manifest/region{1,2}-values.yaml`. We need to specify:
-1. A DNS suffix which matches the names provided in the main values files
-2. A name suffix for the NLBs
-3. A security group for the NLBs in the region to use. It needs to be able to receive traffic from Restate pods on 5122, and send traffic to nodes on the NodePort pods. You likely have a single such security group shared across all load balancers.
-4. The zone assignments for the Restate pods; Helm will use these to ensure the NLBs are in the right zone.
-5. The appropriate subnet for the NLB to assign IPs in for each zone.
-
-Then we can apply the additional manifests:
-```bash
-# in the first cluster
-helm upgrade --install  -n restate-region1 -f ./additional-manifest/values-region1.yaml  additional-manifest ./additional-manifest/chart
-# in the second cluster
-helm upgrade --install  -n restate-region2 -f ./additional-manifest/values-region2.yaml  additional-manifest ./additional-manifest/chart
-```
-
-Once the load balancers are created (check `kubectl describe service restate-` to see events), the dns records may take a couple of minutes to propagate and for caches to clear, which we have to wait for.
-In the meantime the restate pods will occasionally restart as they haven't been provisioned yet - this is normal.
-You can try resolving the dns records locally or while exec'ed into a pod with `curl -v`. Once they have propagated, we can provision the cluster:
+### 1. Deploy the Restate StatefulSets
 
 ```bash
-# in the first cluster
-kubectl -n restate-region1 exec -it restate-0 -- restatectl provision --yes --log-provider replicated --log-replication '{node: 3, region: 2}' --partition-replication '{region: 2}'
+# In the first cluster
+helm upgrade --install restate oci://ghcr.io/restatedev/restate-helm \
+  --version <VERSION> \
+  --namespace restate-region1 --create-namespace \
+  -f ./values-region1.yaml
+
+# In the second cluster
+helm upgrade --install restate oci://ghcr.io/restatedev/restate-helm \
+  --version <VERSION> \
+  --namespace restate-region2 --create-namespace \
+  -f ./values-region2.yaml
 ```
+
+### 2. Deploy the networking (additional-manifest chart)
+
+```bash
+# In the first cluster
+helm upgrade --install additional-manifest ./additional-manifest/chart \
+  -n restate-region1 \
+  -f ./additional-manifest/values-region1.yaml
+
+# In the second cluster
+helm upgrade --install additional-manifest ./additional-manifest/chart \
+  -n restate-region2 \
+  -f ./additional-manifest/values-region2.yaml
+```
+
+This creates the Gateway, TCPRoutes, and ClusterIP Services. Wait for the NLBs to be provisioned and DNS to propagate:
+
+```bash
+kubectl -n restate-region1 describe gateway restate-gateway
+dig region1.restate.yourdomain.com
+```
+
+In the meantime the Restate pods will occasionally restart as they haven't been provisioned yet -- this is normal.
+
+### 3. Provision the cluster
+
+Once DNS has propagated and pods can reach each other:
+
+```bash
+kubectl -n restate-region1 exec -it restate-0 -- restatectl provision --yes \
+  --log-provider replicated \
+  --log-replication '{node: 3, region: 2}' \
+  --partition-replication '{region: 2}'
+```
+
+## Migrating from per-node NLBs
+
+If you are migrating from the old per-node NLB setup, see [MIGRATION.md](./MIGRATION.md) for a step-by-step guide.
 
 ## Handing over between regions
 
@@ -99,7 +134,7 @@ You can hand off between regions either with a script on your laptop (using `kub
 
 ### Running locally
 First, ensure you are in the appropriate kubectl context to talk to either region. Then you can run a drain
-operation with the command ` ./scripts/drain-region.sh region2 restate-region1`, where `region2` is the name of
+operation with the command `./scripts/drain-region.sh region2 restate-region1`, where `region2` is the name of
 the region that was provided to restate with the `RESTATE_LOCATION` env var, and `restate-region1` is the name
 of the namespace in which a `restate-0` pod can be exec'ed into to run the operations. To drain, you likely want
 to exec into the region that you are not draining, so you have confidence the other region is running,
@@ -127,3 +162,5 @@ kubectl create -f jobs/restore-region-1.job.yaml
 
 Jobs and the pods they created (along with their logs) will be retained for an hour after completion.
 If there is a failure Kubernetes will retry the script by creating new Pods up to 6 times.
+
+> **Note:** The drain/restore job YAML files reference the old per-node NLB addresses in `RESTATECTL_ADDRESS`. Update these to use the new regional NLB addresses (e.g. `http://region2.restate.yourdomain.com:5122`) after migration.

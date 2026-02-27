@@ -1,23 +1,27 @@
-# Restate Services Helm Chart Values
+# Restate per-region NLB Helm Chart Values
 
-# Regional config
+# DNS suffix for the regional NLB (used by external-dns)
 dnsSuffix: ""
-# max length: 23 chars
-loadBalancerNameSuffix: ""
-securityGroup: ""
-region: ""
 
-# Pod specific config
-restatePods:
-  # restate-0
-  # - zone: "zone-0"
-  # restate-1
-  # - zone: "zone-1"
-  # restate-2
-  # - zone: "zone-2"
+# Gateway API config
+gatewayClassName: "aws-nlb"
+createGatewayClass: true
 
-# Zone to subnet mapping
-zoneLoadBalancerSubnets:
-  # "eu-central-1a": "subnet-0c2d72e084d79d432"
-  # "eu-central-1b": "subnet-0example2"
-  # "eu-central-1c": "subnet-0example3"
+# NLB config
+scheme: "internet-facing"
+securityGroups: ""
+basePort: 5122
+
+# AWS resource tags applied to the NLB (optional)
+# Replaces service.beta.kubernetes.io/aws-load-balancer-additional-resource-tags
+# from the old per-node NLB Services.
+tags: {}
+  # Application: restate
+  # Environment: production
+  # Team: platform
+
+# One entry per Restate pod in this region
+restatePods: []
+  # - {}  # restate-0
+  # - {}  # restate-1
+  # - {}  # restate-2

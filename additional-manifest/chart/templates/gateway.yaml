@@ -1,0 +1,22 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: restate-gateway
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: {{ .Values.dnsSuffix }}
+spec:
+  gatewayClassName: {{ .Values.gatewayClassName }}
+  infrastructure:
+    parametersRef:
+      group: gateway.k8s.aws
+      kind: LoadBalancerConfiguration
+      name: restate-lb-config
+  listeners:
+    {{- range $index, $pod := .Values.restatePods }}
+    - name: restate-{{ $index }}
+      protocol: TCP
+      port: {{ add $.Values.basePort $index }}
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}

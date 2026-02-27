@@ -24,16 +24,6 @@ resources:
 nodeName: ""
 advertisedAddress: ""
 
-# Derive the advertised address port from the StatefulSet pod ordinal.
-# The regional NLB maps port 5122+N to the Service for restate-N.
-command: ["/bin/sh", "-c"]
-args:
-  - |
-    ORDINAL=${HOSTNAME##*-}
-    PORT=$((5122 + ORDINAL))
-    export RESTATE_ADVERTISED_ADDRESS="http://${RESTATE_REGION_DNS}:${PORT}"
-    exec restate-server
-
 env:
   # --------------------
   # common params
@@ -63,9 +53,20 @@ env:
     value: $(POD_NAME).region2
   - name: RESTATE_LOCATION
     value: region2
-  # the regional DNS name for this region's NLB (used by the command wrapper to set RESTATE_ADVERTISED_ADDRESS)
-  - name: RESTATE_REGION_DNS
-    value: "region2.restate.yourdomain.com"
+  # this must match the format of the external-dns annotations in services.yaml
+  - name: RESTATE_ADVERTISED_ADDRESS
+    value: "http://$(POD_NAME).two-region-demo-cluster.restate.region2.yourdomain.com:5122"
+  # the advertised addresses for all nodes need to be present in config for each node
+  - name: RESTATE_METADATA_CLIENT__ADDRESSES
+    value: >
+      [
+      "http://restate-0.two-region-demo-cluster.restate.region1.yourdomain.com:5122",
+      "http://restate-1.two-region-demo-cluster.restate.region1.yourdomain.com:5122",
+      "http://restate-2.two-region-demo-cluster.restate.region1.yourdomain.com:5122",
+      "http://restate-0.two-region-demo-cluster.restate.region2.yourdomain.com:5122",
+      "http://restate-1.two-region-demo-cluster.restate.region2.yourdomain.com:5122",
+      "http://restate-2.two-region-demo-cluster.restate.region2.yourdomain.com:5122"
+      ]
   # both regions talk to their local bucket for snapshots, cross region replication copies them across
   - name: RESTATE_WORKER__SNAPSHOTS__DESTINATION
     value: "s3://restate-two-region-test-region2/snapshots"

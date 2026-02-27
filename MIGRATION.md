@@ -25,21 +25,21 @@ Before starting, confirm the following in each Kubernetes cluster:
 
 ## Step 1: Deploy the new additional-manifest chart
 
-Deploy the new chart in each region. This creates the Gateway, TCPRoutes, and ClusterIP Services. The single regional NLB will be provisioned by the AWS LB controller.
-
-**The old per-node NLBs remain untouched at this point** -- Restate is still using them.
+Deploy the new chart in each region **using a different Helm release name** from the old chart. This is critical -- the new chart's ClusterIP Services are named `restate-regional-N` to avoid colliding with the old `restate-N` LoadBalancer Services. Both sets of Services coexist, and the old per-node NLBs remain fully operational throughout the migration.
 
 ```bash
 # In the region 1 cluster (or kubecontext)
-helm upgrade --install additional-manifest ./additional-manifest/chart \
+helm upgrade --install restate-networking ./additional-manifest/chart \
   -n restate-region1 \
   -f ./additional-manifest/values-region1.yaml
 
 # In the region 2 cluster (or kubecontext)
-helm upgrade --install additional-manifest ./additional-manifest/chart \
+helm upgrade --install restate-networking ./additional-manifest/chart \
   -n restate-region2 \
   -f ./additional-manifest/values-region2.yaml
 ```
+
+This creates the Gateway, TCPRoutes, and `restate-regional-N` ClusterIP Services alongside the existing `restate-N` LoadBalancer Services. The single regional NLB will be provisioned by the AWS LB controller.
 
 > **Note:** In QA and prod, regions run in separate EKS clusters. Switch kubecontext before running each command. In dev, the two regions are namespaces in the same cluster -- the migration steps are identical, just use different `-n` flags instead of switching kubecontext.
 
@@ -131,27 +131,61 @@ done
 
 Each port should return a response identifying a different node. If two ports return the same node, the TCPRoute or Service selector is misconfigured.
 
-## Step 4: Update Restate values and rolling restart
+## Step 4: Update Restate helm values and rolling restart
 
-Once connectivity is verified, update the Restate Helm release to use the new advertised addresses.
+Once connectivity is verified, update the Restate Helm release to use the new advertised addresses. This step changes the customer's own Restate helm values -- it is not part of the additional-manifest chart.
 
-The new `values-region*.yaml` files include a `command` wrapper that derives the advertised address port from the pod ordinal. The `RESTATE_REGION_DNS` env var provides the regional DNS name.
+The old setup used a per-pod DNS name as the advertised address (all on port 5122):
+
+```yaml
+- name: RESTATE_ADVERTISED_ADDRESS
+  value: "http://$(POD_NAME).two-region-cluster.restate.us-east-1.example.com:5122"
+```
+
+The new setup uses a single regional DNS name with a per-pod port (5122 + pod ordinal). Since Kubernetes env vars don't support arithmetic, this requires a command wrapper that computes the port at startup.
+
+### 4a. Changes to make in each region's Restate helm values
+
+1. **Remove** the `RESTATE_ADVERTISED_ADDRESS` env var (the command wrapper sets it at runtime)
+
+2. **Add** a `RESTATE_REGION_DNS` env var with the regional NLB DNS name:
+
+   ```yaml
+   - name: RESTATE_REGION_DNS
+     value: "region1.restate.yourdomain.com"
+   ```
+
+3. **Add** a `command` and `args` override to derive the port from the pod ordinal:
+
+   ```yaml
+   command: ["/bin/sh", "-c"]
+   args:
+     - |
+       ORDINAL=${HOSTNAME##*-}
+       PORT=$((5122 + ORDINAL))
+       export RESTATE_ADVERTISED_ADDRESS="http://${RESTATE_REGION_DNS}:${PORT}"
+       exec restate-server
+   ```
+
+   > **Note:** The Restate Helm chart supports `command` and `args` overrides (they map directly to the container spec in the StatefulSet template). Confirm the installed chart version supports this before proceeding.
+
+4. **Set** `advertisedAddress: ""` and `nodeName: ""` in the values (these are overridden by the command wrapper and env vars respectively)
+
+### 4b. Apply the changes
 
 ```bash
 # In the region 1 cluster (or kubecontext)
-helm upgrade --install restate oci://ghcr.io/restatedev/restate-helm \
-  --version <CONFIRM_VERSION> \
+helm upgrade restate <CHART_REFERENCE> \
+  --version <VERSION> \
   --namespace restate-region1 \
-  -f ./values-region1.yaml
+  -f <path-to-updated-values-region1.yaml>
 
 # In the region 2 cluster (or kubecontext)
-helm upgrade --install restate oci://ghcr.io/restatedev/restate-helm \
-  --version <CONFIRM_VERSION> \
+helm upgrade restate <CHART_REFERENCE> \
+  --version <VERSION> \
   --namespace restate-region2 \
-  -f ./values-region2.yaml
+  -f <path-to-updated-values-region2.yaml>
 ```
-
-> **Note:** Confirm the Helm chart version with the customer before running. The current README uses `1.4.3` but this may have changed. The `oci://ghcr.io/restatedev/restate-helm` is the standard public Restate Helm chart that the customer already uses -- we are not publishing anything new here, just upgrading the existing release with updated values.
 
 The StatefulSet will perform a rolling update automatically -- Kubernetes deletes and recreates pods one at a time with the new spec (`command` and `args` are mutable fields in the pod template, so no orphaning is needed). Each restarted pod will:
 1. Run the command wrapper, computing its port as `5122 + ordinal`
@@ -186,7 +220,17 @@ Also check pod logs for any connection errors -- nodes should be reaching each o
 
 **Do not proceed until you are confident the new setup is stable.**
 
-Since the new additional-manifest chart replaces the old one (same Helm release name), the old `type: LoadBalancer` Services should have already been replaced by `type: ClusterIP` Services in Step 1. This means the AWS LB controller should have already deprovisioned the old per-node NLBs.
+The old `restate-N` LoadBalancer Services (and their per-node NLBs) are still running from the old Helm release. Uninstall the old release to remove them:
+
+> **Deletion protection:** If the old NLB Services had `deletion_protection.enabled=true` in their load balancer attributes, the AWS LB controller will not be able to delete the old NLBs automatically. You will need to disable deletion protection on each old NLB manually (via the AWS console or CLI) **before** uninstalling the old release.
+
+```bash
+# Disable deletion protection on old NLBs first if needed (via AWS console or CLI)
+
+# Then uninstall the old chart release in each region
+helm uninstall <OLD_RELEASE_NAME> -n restate-region1
+helm uninstall <OLD_RELEASE_NAME> -n restate-region2
+```
 
 Verify no old LoadBalancer services remain:
 
@@ -195,7 +239,7 @@ kubectl -n restate-region1 get svc -o wide | grep LoadBalancer
 kubectl -n restate-region2 get svc -o wide | grep LoadBalancer
 ```
 
-If old NLBs persist as orphaned AWS resources (e.g. the old chart used a different Helm release name), clean them up manually via AWS console or CLI.
+If old NLBs persist as orphaned AWS resources, clean them up manually via AWS console or CLI.
 
 ## Step 7: Clean up DNS
 
@@ -209,10 +253,14 @@ If records persist, remove them manually from your DNS provider.
 
 ## Rollback
 
-If issues are encountered after Step 4 (Restate is using new addresses but something is broken):
+Since the old and new networking coexist throughout the migration, rollback is straightforward at any point before Step 6.
 
-1. Revert the `values-region*.yaml` files to the old versions (with per-pod `RESTATE_ADVERTISED_ADDRESS` and no command wrapper)
+**If issues are found during Steps 1-3** (new NLB not working): just uninstall the new chart (`helm uninstall restate-networking -n <NAMESPACE>`). The old NLBs are untouched and Restate never changed its advertised addresses.
+
+**If issues are found after Step 4** (Restate is using new addresses but something is broken):
+
+1. Revert the Restate helm values to the old versions (restore `RESTATE_ADVERTISED_ADDRESS` with the per-pod DNS name, remove the `command`/`args` wrapper and `RESTATE_REGION_DNS` env var)
 2. `helm upgrade` the Restate release with the old values -- pods will restart and re-register the old advertised addresses
-3. The old per-node NLBs must still be in place for this to work, which is why **Step 6 should only be done once you are confident the new setup is stable**
+3. The old per-node NLBs are still running (they aren't removed until Step 6), so traffic will resume on the old paths immediately
 
-If the issue is with the Gateway/NLB itself (Step 1-3), rollback is trivial -- just uninstall the new additional-manifest chart and redeploy the old one. Restate never changed its advertised addresses so nothing else is affected.
+**After Step 6** (old NLBs removed): rollback requires recreating the old NLBs, which is significantly more involved. This is why Step 6 should only be done once you are confident the new setup is stable.

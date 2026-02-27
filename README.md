@@ -1,6 +1,9 @@
 # Multi-region Restate on Kubernetes
 
-This repo provides Helm values and an additional-manifest chart for running a multi-region Restate cluster on Kubernetes with cross-region networking via a single NLB per region.
+This repo contains two things:
+
+1. **`additional-manifest/`** -- a Helm chart that deploys the networking resources (Gateway, TCPRoutes, ClusterIP Services) for cross-region connectivity via a single NLB per region.
+2. **`values-region{1,2}.yaml`** -- reference values for the [Restate Helm chart](https://github.com/restatedev/restate/tree/main/charts/restate-helm), showing how to configure the Restate StatefulSet for this networking setup. These are examples, not deployed by this repo.
 
 ## Architecture
 
@@ -72,34 +75,22 @@ The role needs an appropriate trust policy such that each Restate pod can assume
 
 ## Deploying for the first time
 
-Edit your values files with the appropriate DNS suffixes, security groups, S3 buckets, and IAM roles.
-
 ### 1. Deploy the Restate StatefulSets
 
-```bash
-# In the first cluster
-helm upgrade --install restate oci://ghcr.io/restatedev/restate-helm \
-  --version <VERSION> \
-  --namespace restate-region1 --create-namespace \
-  -f ./values-region1.yaml
-
-# In the second cluster
-helm upgrade --install restate oci://ghcr.io/restatedev/restate-helm \
-  --version <VERSION> \
-  --namespace restate-region2 --create-namespace \
-  -f ./values-region2.yaml
-```
+Deploy the Restate Helm chart in each region using your own values files. See `values-region{1,2}.yaml` in this repo for reference -- in particular the `command`/`args` wrapper that derives `RESTATE_ADVERTISED_ADDRESS` from the pod ordinal, and the `RESTATE_REGION_DNS` env var.
 
 ### 2. Deploy the networking (additional-manifest chart)
 
+Edit `additional-manifest/values-region{1,2}.yaml` with the appropriate DNS suffixes and security groups.
+
 ```bash
 # In the first cluster
-helm upgrade --install additional-manifest ./additional-manifest/chart \
+helm upgrade --install restate-networking ./additional-manifest/chart \
   -n restate-region1 \
   -f ./additional-manifest/values-region1.yaml
 
 # In the second cluster
-helm upgrade --install additional-manifest ./additional-manifest/chart \
+helm upgrade --install restate-networking ./additional-manifest/chart \
   -n restate-region2 \
   -f ./additional-manifest/values-region2.yaml
 ```

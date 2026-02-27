@@ -11,3 +11,9 @@ spec:
   loadBalancerAttributes:
     - key: load_balancing.cross_zone.enabled
       value: "true"
+  {{- with .Values.tags }}
+  tags:
+    {{- range $key, $value := . }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+  {{- end }}

@@ -12,6 +12,14 @@ scheme: "internet-facing"
 securityGroups: ""
 basePort: 5122
 
+# AWS resource tags applied to the NLB (optional)
+# Replaces service.beta.kubernetes.io/aws-load-balancer-additional-resource-tags
+# from the old per-node NLB Services.
+tags: {}
+  # Application: restate
+  # Environment: production
+  # Team: platform
+
 # One entry per Restate pod in this region
 restatePods: []
   # - {}  # restate-0

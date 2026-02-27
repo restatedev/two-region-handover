@@ -12,6 +12,6 @@ spec:
       sectionName: restate-{{ $index }}
   rules:
     - backendRefs:
-        - name: restate-{{ $index }}
+        - name: restate-regional-{{ $index }}
           port: 5122
 {{- end }}
